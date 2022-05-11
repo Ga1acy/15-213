@@ -143,7 +143,7 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+  return (~(~x & ~y)) & (~(x&y));  //MATH PROBLEM
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -153,7 +153,7 @@ int bitXor(int x, int y) {
  */
 int tmin(void) {
 
-  return 2;
+  return 1<<31;
 
 }
 //2
@@ -165,7 +165,7 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  return !(x^(~(x+1))) & !!((x+1)^0x0);
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +176,10 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  int a = 0xAA<<8; //GET 0XAA00
+  int b = a|0xAA;  //GET 0XAAAA
+  int c = b<<16|b; //GET 0XAAAAAAAA
+  return !((x&c)^c);
 }
 /* 
  * negate - return -x 
@@ -186,7 +189,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x+1;
 }
 //3
 /* 
@@ -199,7 +202,12 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  int a = !((x>>4)^0x3); //To see if the number is 0x3x
+  int b = ~0xA+1;  //GET -A
+  int c = x & 0XF; //Get the last 4 bits
+  int d = c+b; //Cal c-A
+  int e = !!(d>>31); //Get the sign bit
+  return a&e;
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +217,8 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  int expr = (!!x)<<31>>31; //When x is not 0,get 0xFFF--,otherwise get 0x0
+  return (~expr & z) | (expr & y);//When expr is 0,use ~ to return z,otherwise return y(The other one must be 0)
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -218,8 +227,15 @@ int conditional(int x, int y, int z) {
  *   Max ops: 24
  *   Rating: 3
  */
-int isLessOrEqual(int x, int y) {
-  return 2;
+int isLessOrEqual(int x, int y) {   //Pay attention to the overflow
+  int cond1 = !(x^y); //x=y
+  int signX = (x>>31) & 1;  //x is negative if signX is 1
+  int signY = (y>>31) & 1;  //y is negative if signY is 1
+  int cond2 = !((!signX) & (signY));  //x is positive , y negative (return 0 )
+  int cond3 = signX & !signY;  //x is negative , y is positive (return 1)
+  int a = ~y+1; // All positive
+  int cond4 =((x+a)>>31) & 1; //if x<y,get 1,otherwise get 0
+  return cond1 | (cond2&(cond3 | cond4));
 }
 //4
 /* 
@@ -231,7 +247,9 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  int a = ~x+1; //GET -x
+  int sign = x|a; //The most significant bit must be 1 if x!=0
+  return (sign>>31)+1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -246,7 +264,21 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  int flag = x>>31;
+  x = (~flag&(x))|(flag&(~x));
+  //To see if the high 16 bits get 1,if so,we need at least 16 bits(1-16)
+  int bit16 = !!(x>>16)<<4;
+  x = x>>bit16; //Cut the x,make it to 16 bits only if bit16 != 0;
+  int bit8 = !!(x>>8)<<3;
+  x = x>>bit8;
+  int bit4 =!!(x>>4)<<2;
+  x = x>>bit4;
+  int bit2 =!!(x>>2)<<1;
+  x = x>>bit2;
+  int bit1 =!!(x>>1);
+  x = x>>bit1;
+  int bit0 =!!x;
+  return bit16+bit8+bit4+bit2+bit1+bit0+1;
 }
 //float
 /* 
@@ -261,7 +293,26 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  unsigned s = (uf>>31) & (0x1); //V = (-1)S * M * 2E
+  unsigned expr = (uf>>23) & (0xFF);
+  unsigned frac = (uf & 0x7FFFFF);
+  //0
+  if(expr==0 && frac == 0 ){
+    return uf;
+  }
+  //Infinity or NaN
+  if(expr == 0xff){
+    return uf;
+  }
+  //Denormalized  E=1-127=-126
+  if(expr == 0){
+    frac = frac<<1;
+    return (s<<31)|(expr<<23)|(frac);
+  }
+  if(expr !=0 && expr !=0xff){
+    expr++;
+    return (s<<31)|(expr<<23)|(frac);
+  }
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -275,8 +326,49 @@ unsigned floatScale2(unsigned uf) {
  *   Max ops: 30
  *   Rating: 4
  */
-int floatFloat2Int(unsigned uf) {
-  return 2;
+  int floatFloat2Int(unsigned uf) {
+    // V = (-1)S * M * 2E   
+  //Normalized:E = expr-bias M = 1+frac bias = 2e(K-1) -1   M = 1.fn-1fn-2fn-3 ..... f0 
+  //Denormalized: E = 1-bias M = frac   bias = 2e(K-1) -1   M = 0.fn-1fn-2fn-3 ..... f0 
+  unsigned s = (uf>>31) & (0x1);
+  unsigned expr = (uf>>23) & (0xFF);
+  unsigned frac = uf & 0x7FFFFF;
+  //0
+  if(expr==0 && frac == 0 ){
+    return 0x0;
+  }
+  //NaN or INF
+  if(expr == 0xff){
+    return 0x80000000u;
+  }
+  //Denormalized
+  if(expr == 0){  //M = 0.------ , E = 1-127=-126
+    return 0;
+  }
+
+  //Normalized
+  int E = expr-127;
+  frac = frac | (1<<23); //开头加上1
+  if(E>=31){
+    return 0x80000000u;
+  }
+  else if(E<0){
+    return 0;
+  }
+  //***重要:M * 2^E本质上就是对frac的左移和右移，即给出一个原来的数，为了将其变成M所需的格式（1.---）,需要将小数点进行移动，即*2^E,E为正即小数点向左移，反之。
+  //回到这题，如果E很大，大于23（frac的位数），则说明frac可以全部保留，并且还有多余的0，若E小于23，则存在小数位，题目想变成int，所以需要将小数位截断。在此题中frac为23位     
+  //例子:原：110110.0 -->1.1011 * 2^5(IEEE) frac = 4位 ,E = 5  -->frac可左移一位补0（E-4） 
+  if(E>=23){
+    frac<<=(E-23); 
+  }else{
+    frac>>=(23 - E); // 例子：原来的数：1101.1 小数点左移3位,若想变为Int，应该将小数点右边的单个1截掉 ->（1.1011 * 2^3）--IEEE表示法  E=3 ->frac右移1位截掉小数（4 - E）=1
+  }
+
+  if(s) //为负数
+    return ~frac+1;
+  else
+    return frac;
+
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -292,5 +384,34 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  // V = (-1)S * M * 2E   
+  //Normalized:E = expr-bias M = 1+frac bias = 2e(K-1) -1   M = 1.fn-1fn-2fn-3 ..... f0 
+  //Denormalized: E = 1-bias M = frac   bias = 2e(K-1) -1   M = 0.fn-1fn-2fn-3 ..... f0 
+
+  /*Normalized MIN = 2^-126(exp = 0000 0001 E=1-127=-126 frac=00000---0 M=1.0)
+               MAX = 2^127 (exp = 1111 1110 E=254-127=127 frac= 11111---1 M=1.111111....(在1-2之间，所以最大的x就为127))
+  */
+
+ /*
+ * Denormalized MIN = 2^-149(exp = 0000 0000 E=-126 M=0.00000---1 = 2^-23 )
+ *              MAX = 2^-126(exp = 0000 0000 E=-126 M=0.11111--- )
+ */
+  
+  if(x<-148) return 0;//too small
+
+  /*Denormalized M * 2^-126 = 2^x --> M=2^(x+126) 0000---1,将1向左移，得到权重不同，此时的权重为-23，即2^-23
+  *设左移n位，左移1位时，得到权重-22，则-（23-n）=x+126 -->n=x+149
+  */ 
+  else if(x<-126){ 
+    return 1<<(x+149);
+  }
+  else if(x<=127){ //Normalized
+    int expr = x+127; // x = expr -127(bias)
+    return expr<<23; //得到想要产生x所需要的expr位表示，将其移到所需的位置上，即23-30位
+  }
+ else{ //too large x>127
+    return 0xFF<<23;
+  }
+    
+
 }
